@@ -15,8 +15,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 import neqsim.process.SimulationBaseClass;
 import neqsim.process.conditionmonitor.ConditionMonitor;
 import neqsim.process.equipment.EquipmentEnum;
@@ -35,6 +37,11 @@ import neqsim.process.measurementdevice.MeasurementDeviceInterface;
 import neqsim.process.util.report.Report;
 import neqsim.thermo.system.SystemInterface;
 import neqsim.util.ExcludeFromJacocoGeneratedReport;
+
+// importing new data structures
+import neqsim.process.util.RingBuffer;
+import neqsim.process.util.DeviceMeasurement;
+import neqsim.process.util.TimeStepData;
 
 /**
  * Represents a process system containing unit operations.
@@ -55,107 +62,13 @@ public class ProcessSystem extends SimulationBaseClass {
   transient Thread thisThread;
   // String[][] signalDB = new String[10000][100];
 
-  /**
-   * New data structure to store device measurements.
-   */
-  public final class DeviceMeasurement {
-    private final String name;
-    private double measuredValue;
-    private final String unit;
-
-    /**
-     * Constructor.
-     */
-    public DeviceMeasurement(String name, double measuredValue, String unit) {
-      this.name = name;
-      this.measuredValue = measuredValue;
-      this.unit = unit;
-    }
-
-    // Set measurement value
-    public void setMeasuredValue(double measuredValue) {
-      this.measuredValue = measuredValue;
-    }
-
-    // Getters
-    public String getName() {
-      return name;
-    }
-
-    public double getMeasuredValue() {
-      return measuredValue;
-    }
-
-    public String getUnit() {
-      return unit;
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hash(name, measuredValue, unit);
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-      if (this == obj) {
-        return true;
-      }
-      if (obj == null || getClass() != obj.getClass()) {
-        return false;
-      }
-
-      DeviceMeasurement other = (DeviceMeasurement) obj;
-      return Double.compare(other.measuredValue, measuredValue) == 0
-          && Objects.equals(name, other.name) && Objects.equals(unit, other.unit);
-
-    }
-
-  }
 
   /**
    * New data structure to store measurements history.
    */
-  public final class TimeStepData {
-    private final double time;
-    private final List<DeviceMeasurement> measurements;
-
-    // Constructor
-    public TimeStepData(double time, List<DeviceMeasurement> measurements) {
-      this.time = time;
-      this.measurements = measurements;
-    }
-
-    // Getters
-    public double getTime() {
-      return time;
-    }
-
-    public List<DeviceMeasurement> getMeasurements() {
-      return measurements;
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hash(time, measurements);
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-      if (this == obj) {
-        return true;
-      }
-      if (obj == null || getClass() != obj.getClass()) {
-        return false;
-      }
-
-      TimeStepData other = (TimeStepData) obj;
-      return Double.compare(other.time, time) == 0
-          && Objects.equals(measurements, other.measurements);
-    }
-  }
 
   // Measurement history size and storage
-  private final List<TimeStepData> signalHistory = new ArrayList<>(10000);
+  private final RingBuffer<TimeStepData> signalHistory;
 
   // intialization indicator and device list placeholder
   private boolean measurementsInitialized = false;
@@ -176,22 +89,26 @@ public class ProcessSystem extends SimulationBaseClass {
   private final Map<String, Integer> equipmentCounter = new HashMap<>();
   private ProcessEquipmentInterface lastAddedUnit = null;
 
+
+
   /**
    * <p>
-   * Constructor for ProcessSystem.
+   * Constructor for ProcessSystem. modified to include run duration
    * </p>
    */
   public ProcessSystem() {
-    this("Process system");
+    this("Process system", 10000);
   }
 
   /**
-   * Constructor for ProcessSystem.
+   * Constructor for ProcessSystem.modified to include run duration.
    *
    * @param name name of process
    */
-  public ProcessSystem(String name) {
+  public ProcessSystem(String name, Integer bufferSize) {
     super(name);
+
+    this.signalHistory = new RingBuffer<>(bufferSize);
   }
 
   /**
@@ -717,7 +634,7 @@ public class ProcessSystem extends SimulationBaseClass {
       unitOperations.get(i).runTransient(dt, id);
     }
 
-    timeStepNumber++;
+    // timeStepNumber++;
     // signalDB[timeStepNumber] = new String[1 + 3 * measurementDevices.size()];
     // Using new data structure
     List<DeviceMeasurement> currentMeasurements = new ArrayList<>(measurementDevices.size());
@@ -747,6 +664,7 @@ public class ProcessSystem extends SimulationBaseClass {
    */
   public void reset() {
     measurementsInitialized = false;
+    signalHistory.clear();
   }
 
   /** {@inheritDoc} */
@@ -922,29 +840,32 @@ public class ProcessSystem extends SimulationBaseClass {
    * 
    */
   private String[][] convertToStorageFormat() {
-    if (signalHistory.isEmpty()) {
+    // Only converts new entries if the buffer is wrapped.
+    // for the full buffer use toList() instead.
+    List<TimeStepData> data = signalHistory.getNewEntries();
+    if (data.isEmpty()) {
       return new String[0][0];
     }
 
     // 1. Determine the size of the String[][]
-    int numTimeSteps = signalHistory.size();
+    int numTimeSteps = data.size();
 
     // The column size (width) is fixed by the largest step recorded
     // We assume all steps have the same structure (1 time column + N * 3 measurement columns)
     int maxColumns = 1; // Start with the time column
-    if (!signalHistory.get(0).getMeasurements().isEmpty()) {
-      maxColumns = 1 + signalHistory.get(0).getMeasurements().size() * 3;
+    if (!data.get(0).getMeasurements().isEmpty()) {
+      maxColumns = 1 + data.get(0).getMeasurements().size() * 3;
     }
 
     String[][] convertedDB = new String[numTimeSteps][maxColumns];
 
     // 2. Populate the String[][]
     for (int t = 0; t < numTimeSteps; t++) {
-      TimeStepData data = signalHistory.get(t);
-      List<DeviceMeasurement> measurements = data.getMeasurements();
+      TimeStepData datum = data.get(t);
+      List<DeviceMeasurement> measurements = datum.getMeasurements();
 
       // Always set the time at index 0
-      convertedDB[t][0] = Double.toString(data.getTime());
+      convertedDB[t][0] = Double.toString(datum.getTime());
 
       // Set the measurement data
       for (int i = 0; i < measurements.size(); i++) {
