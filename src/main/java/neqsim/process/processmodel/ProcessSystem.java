@@ -8,6 +8,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -38,10 +39,6 @@ import neqsim.process.util.report.Report;
 import neqsim.thermo.system.SystemInterface;
 import neqsim.util.ExcludeFromJacocoGeneratedReport;
 
-// importing new data structures
-import neqsim.process.util.RingBuffer;
-import neqsim.process.util.DeviceMeasurement;
-import neqsim.process.util.TimeStepData;
 
 /**
  * Represents a process system containing unit operations.
@@ -66,6 +63,236 @@ public class ProcessSystem extends SimulationBaseClass {
   /**
    * New data structure to store measurements history.
    */
+
+  public final class RingBuffer<T> implements Serializable {
+    private final Object[] buffer;
+    private int index = 0;
+    private int size = 0;
+
+    // Overwrite tracking
+    private int lastReadIndex = 0;
+    private long cycleCount = 0;
+    private long lastReadCycle = 0;
+
+    public RingBuffer(int capacity) {
+      buffer = new Object[capacity];
+    }
+
+    /**
+     * add new entries.
+     */
+
+    public void add(T element) {
+      buffer[index] = element;
+      index = (index + 1) % buffer.length;
+
+      if (size < buffer.length) {
+        size++;
+      } else if (index == 0) {
+        cycleCount++;
+      }
+    }
+
+    /**
+     * getter.
+     */
+    @SuppressWarnings("unchecked")
+    public T get(int i) {
+
+      if (i < 0 || i >= size) {
+        throw new IndexOutOfBoundsException();
+      }
+      int realIndex = (index - size + i + buffer.length) % buffer.length;
+      return (T) buffer[realIndex];
+    }
+
+    public int size() {
+      return size;
+    }
+
+    public int capacity() {
+      return buffer.length;
+    }
+
+    /**
+     * resets the buffer.
+     */
+    public void clear() {
+      index = 0;
+      size = 0;
+      cycleCount = 0;
+      lastReadIndex = 0;
+      lastReadCycle = 0;
+    }
+
+    /**
+     * Returns the full buffer.
+     */
+    public List<T> toList() {
+      List<T> out = new ArrayList<>(size);
+      for (int i = 0; i < size; i++)
+        out.add(get(i));
+      return out;
+    }
+
+    /**
+     * Returns only new entries added since the last call. If the buffer wrapped, it automatically
+     * returns the new segment.
+     */
+    @SuppressWarnings("unchecked")
+    public List<T> getNewEntries() {
+      List<T> result = new ArrayList<>();
+
+      if (size == 0) {
+        return result;
+      }
+
+      if (cycleCount > lastReadCycle || index > lastReadIndex) {
+        int start = lastReadIndex;
+        int end = index;
+        int cap = buffer.length;
+
+        // If the buffer wrapped around since last read
+        if (cycleCount > lastReadCycle && size == cap) {
+          for (int i = start; i < cap; i++) {
+            result.add((T) buffer[i]);
+          }
+          for (int i = 0; i < end; i++) {
+            result.add((T) buffer[i]);
+          }
+        } else {
+          for (int i = start; i < end; i++) {
+            result.add((T) buffer[i]);
+          }
+        }
+      }
+
+      // Update tracking
+      lastReadIndex = index;
+      lastReadCycle = cycleCount;
+      return result;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) {
+        return true;
+      }
+      if (obj == null || getClass() != obj.getClass()) {
+        return false;
+      }
+
+      @SuppressWarnings("unchecked")
+      RingBuffer<T> other = (RingBuffer<T>) obj;
+      return this.toList().equals(other.toList());
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(toList());
+    }
+  }
+
+  /**
+   * New data structure to store device measurements.
+   */
+
+  public final class DeviceMeasurement implements Serializable {
+
+    private final String name;
+    private double measuredValue;
+    private final String unit;
+
+    /**
+     * Constructor.
+     */
+    public DeviceMeasurement(String name, double measuredValue, String unit) {
+      this.name = name;
+      this.measuredValue = measuredValue;
+      this.unit = unit;
+    }
+
+    // Set measurement value
+    public void setMeasuredValue(double measuredValue) {
+      this.measuredValue = measuredValue;
+    }
+
+    // Getters
+    public String getName() {
+      return name;
+    }
+
+    public double getMeasuredValue() {
+      return measuredValue;
+    }
+
+    public String getUnit() {
+      return unit;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(name, measuredValue, unit);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) {
+        return true;
+      }
+      if (obj == null || getClass() != obj.getClass()) {
+        return false;
+      }
+
+      DeviceMeasurement other = (DeviceMeasurement) obj;
+      return Double.compare(other.measuredValue, measuredValue) == 0
+          && Objects.equals(name, other.name) && Objects.equals(unit, other.unit);
+
+    }
+
+  }
+
+  /**
+   * New data structure to store measurements history.
+   */
+  public final class TimeStepData implements Serializable {
+    private final double time;
+    private final List<DeviceMeasurement> measurements;
+
+    // Constructor
+    public TimeStepData(double time, List<DeviceMeasurement> measurements) {
+      this.time = time;
+      this.measurements = measurements;
+    }
+
+    // Getters
+    public double getTime() {
+      return time;
+    }
+
+    public List<DeviceMeasurement> getMeasurements() {
+      return measurements;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(time, measurements);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) {
+        return true;
+      }
+      if (obj == null || getClass() != obj.getClass()) {
+        return false;
+      }
+
+      TimeStepData other = (TimeStepData) obj;
+      return Double.compare(other.time, time) == 0
+          && Objects.equals(measurements, other.measurements);
+    }
+  }
 
   // Measurement history size and storage
   private final RingBuffer<TimeStepData> signalHistory;
@@ -97,7 +324,18 @@ public class ProcessSystem extends SimulationBaseClass {
    * </p>
    */
   public ProcessSystem() {
-    this("Process system", 10000);
+    this("Process system");
+  }
+
+  /**
+   * Constructor for ProcessSystem.modified to include run duration.
+   *
+   * @param name name of process, buffer size is the measurement history buffer
+   */
+  public ProcessSystem(String name, Integer bufferSize) {
+    super(name);
+
+    this.signalHistory = new RingBuffer<>(bufferSize);
   }
 
   /**
@@ -105,10 +343,11 @@ public class ProcessSystem extends SimulationBaseClass {
    *
    * @param name name of process
    */
-  public ProcessSystem(String name, Integer bufferSize) {
+
+  public ProcessSystem(String name) {
     super(name);
 
-    this.signalHistory = new RingBuffer<>(bufferSize);
+    this.signalHistory = new RingBuffer<>(10000);
   }
 
   /**
@@ -357,6 +596,17 @@ public class ProcessSystem extends SimulationBaseClass {
    */
   public void clear() {
     unitOperations = new ArrayList<ProcessEquipmentInterface>(0);
+  }
+
+  /**
+   * <p>
+   * Reset transient simulation.
+   * </p>
+   */
+
+  public void reset() {
+    measurementsInitialized = false;
+    signalHistory.clear();
   }
 
   /**
@@ -637,7 +887,7 @@ public class ProcessSystem extends SimulationBaseClass {
     // timeStepNumber++;
     // signalDB[timeStepNumber] = new String[1 + 3 * measurementDevices.size()];
     // Using new data structure
-    List<DeviceMeasurement> currentMeasurements = new ArrayList<>(measurementDevices.size());
+    // List<DeviceMeasurement> currentMeasurements = new ArrayList<>(measurementDevices.size());
 
     // for (int i = 0; i < measurementDevices.size(); i++) {
     // signalDB[timeStepNumber][0] = Double.toString(time);
@@ -657,15 +907,7 @@ public class ProcessSystem extends SimulationBaseClass {
     setCalculationIdentifier(id);
   }
 
-  /**
-   * <p>
-   * Reset transient simulation.
-   * </p>
-   */
-  public void reset() {
-    measurementsInitialized = false;
-    signalHistory.clear();
-  }
+
 
   /** {@inheritDoc} */
   @Override
@@ -1152,8 +1394,8 @@ public class ProcessSystem extends SimulationBaseClass {
         && Objects.equals(name, other.name)
         && Objects.equals(recycleController, other.recycleController)
         // && Arrays.deepEquals(signalDB, other.signalDB)
-        // new implementation. is it requred to compare stored history?
-        && Objects.equals(signalHistory, other.signalHistory)
+        // new implementation. is it requred to compare stored history? commented out
+        // && Objects.equals(signalHistory, other.signalHistory)
 
         && Double.doubleToLongBits(surroundingTemperature) == Double
             .doubleToLongBits(other.surroundingTemperature)
