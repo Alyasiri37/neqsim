@@ -298,8 +298,8 @@ public class ProcessSystem extends SimulationBaseClass {
   private final RingBuffer<TimeStepData> signalHistory;
 
   // intialization indicator and device list placeholder
-  private boolean measurementsInitialized = false;
-  private List<DeviceMeasurement> currentMeasurements;
+  // private boolean measurementsInitialized = false;
+  // private List<DeviceMeasurement> currentMeasurements;
 
   private double surroundingTemperature = 288.15;
   private int timeStepNumber = 0;
@@ -605,7 +605,7 @@ public class ProcessSystem extends SimulationBaseClass {
    */
 
   public void reset() {
-    measurementsInitialized = false;
+    // measurementsInitialized = false;
     signalHistory.clear();
   }
 
@@ -840,17 +840,17 @@ public class ProcessSystem extends SimulationBaseClass {
    * </p>
    *
    */
-  private void initMeasurements() {
+  // private void initMeasurements() {
 
-    currentMeasurements = new ArrayList<>(measurementDevices.size());
+  // currentMeasurements = new ArrayList<>(measurementDevices.size());
 
-    for (MeasurementDeviceInterface device : measurementDevices) {
-      currentMeasurements.add(
-          new DeviceMeasurement(device.getName(), device.getMeasuredValue(), device.getUnit()));
-    }
+  // for (MeasurementDeviceInterface device : measurementDevices) {
+  // currentMeasurements.add(
+  // new DeviceMeasurement(device.getName(), device.getMeasuredValue(), device.getUnit()));
+  // }
 
-    this.measurementsInitialized = true;
-  }
+  // this.measurementsInitialized = true;
+  // }
 
   /**
    * <p>
@@ -865,10 +865,10 @@ public class ProcessSystem extends SimulationBaseClass {
   @Override
   public void runTransient(double dt, UUID id) {
 
-    if (!measurementsInitialized) {
-      initMeasurements();
-      measurementsInitialized = true;
-    }
+    // if (!measurementsInitialized) {
+    // initMeasurements();
+    // measurementsInitialized = true;
+    // }
 
     for (int i = 0; i < unitOperations.size(); i++) {
       ProcessEquipmentInterface unit = unitOperations.get(i);
@@ -898,11 +898,18 @@ public class ProcessSystem extends SimulationBaseClass {
     // }
 
     // loop through devices and store readings
-    for (int i = 0; i < measurementDevices.size(); i++) {
-      currentMeasurements.get(i).setMeasuredValue(measurementDevices.get(i).getMeasuredValue());
+    List<DeviceMeasurement> snapshot = new ArrayList<>();
+    for (MeasurementDeviceInterface device : measurementDevices) {
+      snapshot.add(
+          new DeviceMeasurement(device.getName(), device.getMeasuredValue(), device.getUnit()));
     }
+    // for (int i = 0; i < measurementDevices.size(); i++) {
+    // currentMeasurements.get(i).setMeasuredValue(measurementDevices.get(i).getMeasuredValue());
+    // System.out.println(measurementDevices.get(i).getMeasuredValue());
+    // }
     // store history
-    signalHistory.add(new TimeStepData(time, new ArrayList<>(currentMeasurements)));
+    signalHistory.add(new TimeStepData(time, snapshot));
+    // signalHistory.add(new TimeStepData(time, new ArrayList<>(currentMeasurements)));
 
     setCalculationIdentifier(id);
   }
